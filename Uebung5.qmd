@@ -224,6 +224,6 @@ cube <- plot_ly() |>
   layout(scene = list(xaxis = list(title = 'E'),
                       yaxis = list(title = 'N'),
                       zaxis = list(title = 'Time')))
-
+ 
 cube
 ```
