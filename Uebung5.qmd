@@ -1,0 +1,229 @@
+---
+title: "Uebung5 Demo and Exercise"
+format: html
+editor: visual
+autor: Daniel
+---
+
+# Demo
+
+```{r}
+#load libraries
+library("readr")
+library("dplyr")
+library("sf")
+library("ggplot2")
+
+testfun <- function() {
+    print("this function does nothing")
+}
+
+testfun()
+
+testfun <- function(sometext) {
+    print(sometext)
+}
+
+testfun(sometext = "this function does slightly more, but still not much")
+```
+
+```{r}
+my_age <- function(birthday, output_unit) {
+    difftime(Sys.time(), birthday, units = output_unit)
+}
+
+my_age(birthday = "1997-04-23", output_unit = "days")
+
+my_age("1997-05-31", "days")
+```
+
+If we want any of our parameters to have default value, we can assign an initial value to the parameter when declaring the variables within the round brackets.
+
+```{r}
+my_age <- function(birthday, output_unit = "days") {
+    difftime(Sys.time(), birthday, units = output_unit)
+}
+
+# if not stated otherwise, our function uses the unit "days"
+my_age("1997-05-31")
+
+#we can still overwrite the units
+
+my_age("1997-05-31", "weeks")
+```
+
+# Exercises
+
+## Task 1: Create your own functions:
+
+1.  Calculate BMI based on a person's height and weight
+
+```{r}
+bmi <- function(weight, height) {
+  print(weight/(height)^2)
+}
+
+bmi(70, 1.73)
+```
+
+2.  Calculate Degrees Farenheight based on Degrees Celcius
+
+```{r}
+farenheit <- function(celsius) {
+  print((celsius * 9/5)+32)
+}
+
+farenheit(28)
+```
+
+3.  A function which calculates the (Euclidean) distance between two sets of coordinates (x1, y1 and x2, y2) based on the formula below:
+
+```{r}
+euc_distance <- function(x1, y1, x2, y2) {
+  distance <- sqrt((x2 - x1)^2 + (y2 - y1)^2)
+  return(distance)
+}
+
+```
+
+## Task 2: Prepare Analysis
+
+In the next tasks we will look for "meet" patterns in our wild boar data. To simplify this, we will only use a subset of our wild boar data: The individualsÂ *Rosa*Â andÂ *Sabi*Â for the timespanÂ *01.04.2015 - 15.04.2015*. Filter it with the aforementioned criteria.
+
+```{r}
+# importieren
+wildschwein <- read.csv("wildschwein_BE_2056.csv", header = TRUE, sep = ",")
+
+# Konvertieren der date-Spalte in das Datum-Format
+wildschwein <- wildschwein |> 
+  mutate(date = as.Date(DatetimeUTC, format = "%Y-%m-%d"))
+
+# Filtern nach Kriterien und konvertieren in ein sf-Objekt
+d1 <- wildschwein |> 
+  filter((TierName %in% c("Rosa", "Sabi")) & 
+         (date >= as.Date("2015-04-01")) & 
+         (date <= as.Date("2015-04-15"))) |> 
+  st_as_sf(coords = c("E", "N"), crs = 2056, remove = FALSE)
+
+```
+
+## Task 3: Create a Join Key
+
+The task is therefore to round the minutes of `DatetimeUTC` to a multiple of 15 (00, 15, 30,45) and store the values in a new column. You can use the `lubridate` function `round_date()` for this. See the examples [here](https://lubridate.tidyverse.org/reference/round_date.html) to see how this goes.
+
+```{r}
+library(lubridate)
+
+d1 <- d1 |> 
+  mutate(DatetimeUTC = ymd_hms(DatetimeUTC))
+
+d1 <- d1 |> 
+  mutate(DatetimeRound = round_date(DatetimeUTC, unit = "15 minutes"))
+
+head(d1)
+```
+
+## Task 4: Measuring distance at concurrent locations
+
+To measure the distance between concurrent locations, we need to follow the following steps.
+
+1.  Split the `wildschwein_filter` object into one `data.frame` per animal
+
+```{r}
+d_sabi <- d1 |> 
+  filter(TierName == "Sabi")
+
+d_rosa <- d1 |> 
+  filter(TierName == "Rosa")
+
+# Konvertieren der sf-Objekte in DataFrames
+rosa_df <- st_drop_geometry(d_rosa)
+sabi_df <- st_drop_geometry(d_sabi)
+```
+
+1.  Join\* these datasets by the new `Datetime` column created in the last task. The joined observations are *temporally close*.
+
+```{r}
+#innerjoin
+d_joined <- inner_join(sabi_df, rosa_df, by = "DatetimeRound", suffix = c("_Sabi", "_Rosa"))
+```
+
+1.  In the joined dataset, calculate Euclidean distances between concurrent observations and store the values in a new column
+
+```{r}
+# Distance berechnen mit der Funktion aus Task 1.3 und sie in neuer Spalte speichern.
+
+d_joined <- d_joined |> 
+  mutate(distance = euc_distance(E_Sabi, N_Sabi, E_Rosa, N_Rosa))
+
+View(d_joined)
+```
+
+1.  Use a reasonable threshold on `distance` to determine if the animals are also *spatially close* enough to constitute a *meet* (we use 100 meters). Store this Boolean information (`TRUE`/`FALSE`) in a new column
+
+```{r}
+d_joined <- d_joined |> 
+  mutate(meet = distance <= 100)
+```
+
+## Task 5: Visualize Data
+
+Now, visualize the *meets* spatially in a way that you think reasonable. For example in the plot as shows below. To produce this plot we:
+
+-   Used the individual dataframes from `rosa` and `sabi` (from the previous task)
+
+-   Used the joined dataset (also from the previous task), filtered to only the meets
+
+-   Manually changed the x and y axis limits
+
+```{r}
+# Wir wollen nur noch Zeilen mit Meets: Joined Dataset so filtern, dass wir nur noch die Info zu Meet haben
+
+meet <- d_joined |> 
+  filter(meet == TRUE)
+
+# Plot erstellen
+
+meetsplot <- ggplot() +
+  #Rosas Bewegungen:
+  #geom_path(data = d_rosa, aes(x = E, y = N), color = "blue", alpha = 0.6) +
+  geom_point(data = d_rosa, aes(x = E, y = N), color = "orange", size = 1, alpha = 0.6) +
+  # Sabi's Bewegungen:
+  #geom_path(data = d_sabi, aes(x = E, y = N), color = "red", alpha = 0.6) +
+  geom_point(data = d_sabi, aes(x = E, y = N), color = "red", size = 1, alpha = 0.6) +
+  # Jetzt noch die Meets mit anderer Farbe
+  geom_point(data = meet, aes(x = E_Rosa, y = N_Rosa), color = "black", size = 2, alpha = 0.5) +
+  geom_point(data = meet, aes(x = E_Sabi, y = N_Sabi), color = "black", size = 2, alpha= 0.5) +
+  # Achsenlimits (manuell angepasst):
+  xlim(min(wildschwein$E), max(wildschwein$E)) +
+  ylim(min(wildschwein$N), max(wildschwein$N)) +
+  # Titel und Achsenbeschriftungen
+  ggtitle("Regulaere Bewegungen und Treffen von Rosa und Sabi") +
+  xlab("E") + ylab("N") +
+  theme_minimal()
+
+meetsplot
+  
+```
+
+## Task 6: **Visualize data as timecube with `plotly`**
+
+```{r}
+library(plotly)
+
+cube <- plot_ly() |> 
+  # Rosa's Bewegungen
+  add_trace(data = d_rosa, x = ~E, y = ~N, z = ~DatetimeUTC, type = 'scatter3d', mode = 'lines+markers',
+            line = list(color = 'orange'), marker = list(size = 1, color = 'orange'), name = 'Rosa') |> 
+  # Sabi's Bewegungen
+  add_trace(data = d_sabi, x = ~E, y = ~N, z = ~DatetimeUTC, type = 'scatter3d', mode = 'lines+markers',
+            line = list(color = 'red'), marker = list(size = 1, color = 'red'), name = 'Sabi') |> 
+  # Meets
+  add_trace(data = meet, x = ~E_Rosa, y = ~N_Rosa, z = ~DatetimeUTC_Sabi, type = 'scatter3d', mode = 'markers',
+            marker = list(size = 7, color = 'black', symbol = 'circle'), name = 'Meet Points') |> 
+  layout(scene = list(xaxis = list(title = 'E'),
+                      yaxis = list(title = 'N'),
+                      zaxis = list(title = 'Time')))
+
+cube
+```
